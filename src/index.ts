@@ -1,9 +1,8 @@
 import dotenv from "dotenv";
 dotenv.config();
+import "reflect-metadata";
 import express from "express";
 import { createServer } from "http";
-import { MikroORM } from "@mikro-orm/core";
-import mikroConfig from "../mikro-orm.config";
 import config from "config";
 import { ApolloServer } from "apollo-server-express";
 import { buildSchema } from "type-graphql";
@@ -15,13 +14,18 @@ import session from "express-session";
 import connectRedis from "connect-redis";
 import Redis from "ioredis";
 import cors from "cors";
+import connectDb from "./utils/connectDb";
+import { dataSource } from "./utils/connectDb";
+import { User } from "./entity/user";
+import { Post } from "./entity/post";
 
 const port = config.get<number>("port");
 
 async function main() {
   // connecting database
-  const orm = await MikroORM.init(mikroConfig);
-  orm.getMigrator().up();
+  await connectDb();
+  const UserRepo = dataSource.getRepository(User);
+  const PostRepo = dataSource.getRepository(Post);
 
   // initiating app
   const app = express();
@@ -36,7 +40,6 @@ async function main() {
 
   const RedisStore = connectRedis(session);
   const redis = new Redis();
-  // await redis.connect().catch(console.error);
 
   app.use(
     session({
@@ -64,7 +67,7 @@ async function main() {
       validate: false,
     }),
     plugins: [ApolloServerPluginLandingPageGraphQLPlayground()],
-    context: ({ req, res }) => ({ em: orm.em, req, res, redis }),
+    context: ({ req, res }) => ({ req, res, redis, UserRepo, PostRepo }),
   });
 
   await apolloServer.start();

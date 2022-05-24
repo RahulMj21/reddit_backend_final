@@ -1,4 +1,3 @@
-import { RequiredEntityData } from "@mikro-orm/core";
 import {
   Resolver,
   Query,
@@ -8,77 +7,115 @@ import {
   Mutation,
   InputType,
   Field,
+  ObjectType,
+  UseMiddleware,
 } from "type-graphql";
 import { Post } from "../entity/post";
+import isAuth from "../middlewares/isAuth";
 import { MyContext } from "../types";
+import CustomError from "../utils/CustomError";
+import { FieldError } from "./UserResolver";
 
 @InputType()
 export class PostInput {
-  @Field(() => String)
-  author!: string;
-
   @Field()
   title!: string;
+
+  @Field(() => String)
+  description!: string;
+}
+@InputType()
+export class UpdatePostInput {
+  @Field(() => Int)
+  id!: number;
+
+  @Field(() => String)
+  title?: string;
+
+  @Field(() => String)
+  description?: string;
+}
+
+@ObjectType()
+export class PostResponse {
+  @Field(() => [FieldError], { nullable: true })
+  errors?: FieldError[];
+
+  @Field(() => Post, { nullable: true })
+  post?: Post;
 }
 
 @Resolver()
 export default class {
-  @Query(() => [Post])
-  async posts(@Ctx() { em }: MyContext): Promise<Post[]> {
-    return await em.find(Post, {});
+  @Query(() => [Post], { nullable: true })
+  async posts(
+    @Ctx()
+    { PostRepo }: MyContext
+  ): Promise<Post[]> {
+    return await PostRepo.find();
   }
 
-  @Query(() => Post, { nullable: true })
+  @Query(() => PostResponse)
   async post(
     @Arg("id", () => Int)
     id: number,
-    @Ctx() { em }: MyContext
-  ): Promise<Post | null> {
-    const post = await em.findOne(Post, { id });
-    if (!post) return null;
-    return post;
+    @Ctx() { PostRepo }: MyContext
+  ): Promise<PostResponse> {
+    const post = await PostRepo.findOneBy({ id });
+    if (!post) return { errors: [new CustomError("id", "post not found")] };
+    return { post };
   }
 
-  @Mutation(() => Post)
+  @Mutation(() => PostResponse)
+  @UseMiddleware(isAuth)
   async createPost(
-    @Arg("inputs")
-    inputs: PostInput,
+    @Arg("input")
+    input: PostInput,
     @Ctx()
-    { em }: MyContext
-  ) {
-    const post = em.create(Post, inputs as RequiredEntityData<Post>);
-    await em.persistAndFlush(post);
-    return post;
+    { PostRepo, req }: MyContext
+  ): Promise<PostResponse> {
+    const data = {
+      ...input,
+      creatorId: req.session.userId,
+    };
+    const post = PostRepo.create(data);
+    await post.save();
+    return { post };
   }
 
-  @Mutation(() => Post, { nullable: true })
+  @Mutation(() => PostResponse)
   async updatePost(
-    @Arg("id")
-    id: number,
-    @Arg("title")
-    title: string,
+    @Arg("input", () => UpdatePostInput)
+    { id, title, description }: UpdatePostInput,
     @Ctx()
-    { em }: MyContext
-  ): Promise<Post | null> {
-    const post = await em.findOne(Post, { id });
+    { PostRepo }: MyContext
+  ): Promise<PostResponse> {
+    try {
+    } catch (error: any) {}
+    const post = await PostRepo.findOneBy({ id });
 
     if (!post) {
-      return null;
+      return { errors: [new CustomError("id", "post not found")] };
     }
-    post.title = title;
-    await em.persistAndFlush(post);
-    return post;
+
+    if (title) post.title = title;
+    if (description) post.description = description;
+
+    await post.save();
+    return { post };
   }
 
-  @Mutation(() => String)
+  @Mutation(() => Boolean)
   async deletePost(
     @Arg("id", () => Int)
     id: number,
     @Ctx()
-    { em }: MyContext
-  ): Promise<string> {
-    const deletedPost = await em.nativeDelete(Post, { id });
-    if (!deletedPost) return "post dosen't exists";
-    return "post deleted";
+    { PostRepo }: MyContext
+  ): Promise<Boolean> {
+    const post = await PostRepo.findOneBy({ id });
+    if (!post) return false;
+
+    await post.remove();
+    return true;
   }
 }

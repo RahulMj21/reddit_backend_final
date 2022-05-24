@@ -7,15 +7,16 @@ import {
   Resolver,
   Mutation,
   Query,
+  UseMiddleware,
 } from "type-graphql";
 import { MyContext } from "../types";
 import { User } from "../entity/user";
 import argon from "argon2";
-import { RequiredEntityData } from "@mikro-orm/core";
 import CustomError from "../utils/CustomError";
 import sendMail from "../utils/sendMail";
 import { v4 } from "uuid";
 import config from "config";
+import isAuth from "../middlewares/isAuth";
 
 @InputType()
 export class RegisterInput {
@@ -76,36 +77,36 @@ export class UserResolver {
     @Arg("input")
     input: RegisterInput,
     @Ctx()
-    { em, req }: MyContext
+    { UserRepo, req }: MyContext
   ): Promise<UserResponse> {
     try {
       if (input.name.length < 3) {
         return {
           errors: [
-            {
-              field: "name",
-              message: "name must be longer than three characters",
-            },
+            new CustomError(
+              "name",
+              "name must be longer than three characters"
+            ),
           ],
         };
       }
       if (input.password.length < 6) {
         return {
           errors: [
-            {
-              field: "password",
-              message: "password must be longer than six characters",
-            },
+            new CustomError(
+              "password",
+              "password must be longer than six characters"
+            ),
           ],
         };
       }
       const hash = await argon.hash(input.password);
-      const user = em.create(User, {
+      const user = UserRepo.create({
         name: input.name,
         email: input.email,
         password: hash,
-      } as RequiredEntityData<User>);
-      await em.persistAndFlush(user);
+      });
+      await user.save();
 
       req.session.userId = user.id;
       return {
@@ -114,21 +115,11 @@ export class UserResolver {
     } catch (error: any) {
       if (error.code === "23505") {
         return {
-          errors: [
-            {
-              field: "email",
-              message: "email already exists",
-            },
-          ],
+          errors: [new CustomError("email", "email already exists")],
         };
       }
       return {
-        errors: [
-          {
-            field: "system_error",
-            message: "invalid request",
-          },
-        ],
+        errors: [new CustomError("system_error", "something went wrong")],
       };
     }
   }
@@ -138,10 +129,10 @@ export class UserResolver {
     @Arg("input", () => LoginInput)
     input: LoginInput,
     @Ctx()
-    { em, req }: MyContext
+    { UserRepo, req }: MyContext
   ): Promise<UserResponse> {
     try {
-      const user = await em.findOne(User, { email: input.email });
+      const user = await UserRepo.findOneBy({ email: input.email });
       if (!user)
         return {
           errors: [new CustomError("email", "wrong email")],
@@ -161,6 +152,7 @@ export class UserResolver {
   }
 
   @Mutation(() => Boolean)
+  @UseMiddleware(isAuth)
   async logout(
     @Ctx()
     { req, res }: MyContext
@@ -179,12 +171,12 @@ export class UserResolver {
   }
 
   @Query(() => User, { nullable: true })
+  @UseMiddleware(isAuth)
   async me(
     @Ctx()
-    { em, req }: MyContext
+    { UserRepo, req }: MyContext
   ) {
-    const id = req.session.userId;
-    const user = await em.findOne(User, { id });
+    const user = await UserRepo.findOneBy({ id:req.session.userId });
     return user;
   }
 
@@ -193,10 +185,10 @@ export class UserResolver {
     @Arg("email", () => String!)
     email: string,
     @Ctx()
-    { em, redis }: MyContext
+    { UserRepo, redis }: MyContext
   ): Promise<ForgotPasswordResponse> {
     try {
-      const user = await em.findOne(User, { email });
+      const user = await UserRepo.findOneBy({ email });
       if (!user) {
         return {
           errors: [new CustomError("email", "email not registered")],
@@ -232,7 +224,7 @@ export class UserResolver {
     @Arg("input")
     { token, newPassword }: ResetPasswordInput,
     @Ctx()
-    { em, redis }: MyContext
+    { UserRepo, redis }: MyContext
   ) {
     if (newPassword.length < 6) {
       return {
@@ -247,14 +239,17 @@ export class UserResolver {
       return { errors: [new CustomError("token", "token expired")] };
     }
     const id = parseInt(userId);
-    const user = await em.findOne(User, { id });
+    const user = await UserRepo.findOneBy({ id });
     if (!user) {
       return { errors: [new CustomError("token", "token expired")] };
     }
     const hash = await argon.hash(newPassword);
     user.password = hash;
-    em.persistAndFlush(user);
+
+    user.save();
+
     await redis.del(key);
+
     return { user };
   }
 }
