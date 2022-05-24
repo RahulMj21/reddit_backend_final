@@ -1,1 +1,2 @@
-# reddit_backend_apollo_mikro-orm
+# reddit_backend_apollo_typeorm
+
