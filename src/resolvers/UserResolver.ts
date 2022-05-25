@@ -171,12 +171,12 @@ export class UserResolver {
   }
 
   @Query(() => User, { nullable: true })
-  @UseMiddleware(isAuth)
   async me(
     @Ctx()
     { UserRepo, req }: MyContext
   ) {
-    const user = await UserRepo.findOneBy({ id:req.session.userId });
+    if (!req.session.userId) return null;
+    const user = await UserRepo.findOneBy({ id: req.session.userId });
     return user;
   }
 

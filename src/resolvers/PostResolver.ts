@@ -49,10 +49,19 @@ export class PostResponse {
 export default class {
   @Query(() => [Post], { nullable: true })
   async posts(
+    @Arg("limit", () => Int) limit: number,
+    @Arg("cursor", () => Date, { nullable: true }) cursor: Date,
     @Ctx()
     { PostRepo }: MyContext
   ): Promise<Post[]> {
-    return await PostRepo.find();
+    const post = PostRepo.createQueryBuilder("post")
+      .orderBy('"createdAt"', "DESC")
+      .limit(limit);
+
+    if (cursor) {
+      post.where(`"createdAt" < :cursor`, { cursor });
+    }
+    return post.getMany();
   }
 
   @Query(() => PostResponse)
