@@ -6,9 +6,11 @@ import {
   Column,
   BaseEntity,
   ManyToOne,
+  OneToMany,
 } from "typeorm";
 import { Field, Int, ObjectType } from "type-graphql";
 import { User } from "./user";
+import { Updoot } from "./updoot";
 
 @ObjectType()
 @Entity()
@@ -33,8 +35,13 @@ export class Post extends BaseEntity {
   @Column({ type: "int", default: 0 })
   points!: number;
 
+  @Field(() => User)
   @ManyToOne(() => User, (user) => user.posts)
   creator!: User;
+
+  @Field(() => [Updoot])
+  @OneToMany(() => Updoot, (updoot) => updoot.post)
+  updoots!: Updoot[];
 
   @Field(() => Date)
   @CreateDateColumn({ name: "createdAt" })

@@ -18,6 +18,7 @@ import connectDb from "./utils/connectDb";
 import { dataSource } from "./utils/connectDb";
 import { User } from "./entity/user";
 import { Post } from "./entity/post";
+import { Updoot } from "./entity/updoot";
 
 const port = config.get<number>("port");
 
@@ -26,6 +27,7 @@ async function main() {
   await connectDb();
   const UserRepo = dataSource.getRepository(User);
   const PostRepo = dataSource.getRepository(Post);
+  const UpdootRepo = dataSource.getRepository(Updoot);
   // await PostRepo.delete({});
 
   // initiating app
@@ -68,7 +70,14 @@ async function main() {
       validate: false,
     }),
     plugins: [ApolloServerPluginLandingPageGraphQLPlayground()],
-    context: ({ req, res }) => ({ req, res, redis, UserRepo, PostRepo }),
+    context: ({ req, res }) => ({
+      req,
+      res,
+      redis,
+      UserRepo,
+      PostRepo,
+      UpdootRepo,
+    }),
   });
 
   await apolloServer.start();

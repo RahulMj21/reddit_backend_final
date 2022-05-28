@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Redis } from "ioredis";
 import { Repository } from "typeorm";
 import { Post } from "../entity/post";
+import { Updoot } from "../entity/updoot";
 import { User } from "../entity/user";
 
 export type MyContext = {
@@ -10,4 +11,5 @@ export type MyContext = {
   redis: Redis;
   UserRepo: Repository<User>;
   PostRepo: Repository<Post>;
+  UpdootRepo: Repository<Updoot>;
 };

@@ -12,6 +12,7 @@ import {
   FieldResolver,
   Root,
 } from "type-graphql";
+import { LessThan } from "typeorm";
 import { Post } from "../entity/post";
 import isAuth from "../middlewares/isAuth";
 import { MyContext } from "../types";
@@ -48,7 +49,7 @@ export class PostResponse {
 }
 
 @ObjectType()
-export class PaginatedPost {
+export class PaginatedPosts {
   @Field(() => [Post], { nullable: true })
   posts!: Post[];
 
@@ -63,24 +64,58 @@ export default class {
     return root.description.slice(0, 50);
   }
 
-  @Query(() => PaginatedPost)
+  @Mutation(() => Boolean)
+  @UseMiddleware(isAuth)
+  async vote(
+    @Arg("postId", () => Int!) postId: number,
+    @Arg("value", () => Int!) value: number,
+    @Ctx() { req, UpdootRepo, PostRepo }: MyContext
+  ) {
+    try {
+      const { userId } = req.session;
+      const realValue = value <= -1 ? -1 : 1;
+      const updoot = UpdootRepo.create({
+        userId,
+        postId,
+        value: realValue,
+      });
+      await updoot.save();
+
+      const post = await PostRepo.findOneBy({ id: postId });
+      if (!post) return false;
+
+      await PostRepo.createQueryBuilder()
+        .update(Post)
+        .set({ points: post.points + realValue })
+        .where("id = :id", { id: postId })
+        .execute();
+
+      return true;
+    } catch (error: any) {
+      return false;
+    }
+  }
+
+  @Query(() => PaginatedPosts)
   async posts(
     @Arg("limit", () => Int) limit: number,
     @Arg("cursor", () => Date, { nullable: true }) cursor: Date,
     @Ctx()
     { PostRepo }: MyContext
-  ): Promise<PaginatedPost> {
+  ): Promise<PaginatedPosts> {
     const realLimit = Math.min(50, limit);
     const realLimitPlusOne = realLimit + 1;
 
     const post = PostRepo.createQueryBuilder("post")
-      .orderBy('"createdAt"', "DESC")
-      .take(realLimitPlusOne);
+      .leftJoinAndSelect(`post.creator`, "creator")
+      .orderBy(`post."createdAt"`, "DESC")
+      .limit(realLimitPlusOne);
 
     if (cursor) {
-      post.where(`"createdAt" < :cursor`, { cursor });
+      post.where(`post."createdAt" < :cursor`, { cursor });
     }
     const posts = await post.getMany();
+
     return {
       posts: posts.slice(0, realLimit),
       hasMore: posts.length === realLimitPlusOne,
