@@ -26,6 +26,7 @@ async function main() {
   await connectDb();
   const UserRepo = dataSource.getRepository(User);
   const PostRepo = dataSource.getRepository(Post);
+  // await PostRepo.delete({});
 
   // initiating app
   const app = express();

@@ -9,6 +9,8 @@ import {
   Field,
   ObjectType,
   UseMiddleware,
+  FieldResolver,
+  Root,
 } from "type-graphql";
 import { Post } from "../entity/post";
 import isAuth from "../middlewares/isAuth";
@@ -45,23 +47,44 @@ export class PostResponse {
   post?: Post;
 }
 
-@Resolver()
+@ObjectType()
+export class PaginatedPost {
+  @Field(() => [Post], { nullable: true })
+  posts!: Post[];
+
+  @Field(() => Boolean)
+  hasMore!: boolean;
+}
+
+@Resolver(Post)
 export default class {
-  @Query(() => [Post], { nullable: true })
+  @FieldResolver(() => String)
+  descriptionSnippet(@Root() root: Post) {
+    return root.description.slice(0, 50);
+  }
+
+  @Query(() => PaginatedPost)
   async posts(
     @Arg("limit", () => Int) limit: number,
     @Arg("cursor", () => Date, { nullable: true }) cursor: Date,
     @Ctx()
     { PostRepo }: MyContext
-  ): Promise<Post[]> {
+  ): Promise<PaginatedPost> {
+    const realLimit = Math.min(50, limit);
+    const realLimitPlusOne = realLimit + 1;
+
     const post = PostRepo.createQueryBuilder("post")
       .orderBy('"createdAt"', "DESC")
-      .limit(limit);
+      .take(realLimitPlusOne);
 
     if (cursor) {
       post.where(`"createdAt" < :cursor`, { cursor });
     }
-    return post.getMany();
+    const posts = await post.getMany();
+    return {
+      posts: posts.slice(0, realLimit),
+      hasMore: posts.length === realLimitPlusOne,
+    };
   }
 
   @Query(() => PostResponse)
