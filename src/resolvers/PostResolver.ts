@@ -64,6 +64,17 @@ export default class {
     return root.description.slice(0, 50);
   }
 
+  @FieldResolver(() => Int, { nullable: true })
+  async voteStatus(@Root() post: Post, @Ctx() { req, UpdootRepo }: MyContext) {
+    const { userId } = req.session;
+    if (!userId) return null;
+    const updoot = await UpdootRepo.findOne({
+      where: { userId, postId: post.id },
+    });
+    if (!updoot) return null;
+    return updoot.value;
+  }
+
   @Mutation(() => Boolean)
   @UseMiddleware(isAuth)
   async vote(
@@ -73,22 +84,34 @@ export default class {
   ) {
     try {
       const { userId } = req.session;
-      const realValue = value <= -1 ? -1 : 1;
-      const updoot = UpdootRepo.create({
-        userId,
-        postId,
-        value: realValue,
-      });
-      await updoot.save();
+      let realValue = value <= -1 ? -1 : 1;
 
       const post = await PostRepo.findOneBy({ id: postId });
       if (!post) return false;
 
-      await PostRepo.createQueryBuilder()
-        .update(Post)
-        .set({ points: post.points + realValue })
-        .where("id = :id", { id: postId })
-        .execute();
+      let updoot = await UpdootRepo.findOne({ where: { userId, postId } });
+
+      // user has voted before on the post
+      if (updoot && updoot.value !== realValue) {
+        updoot.value = realValue;
+      } //user not voted yet
+      else if (!updoot) {
+        updoot = UpdootRepo.create({
+          userId,
+          postId,
+          value: realValue,
+        });
+      }
+      await updoot.save();
+
+      // await PostRepo.createQueryBuilder()
+      //   .update(Post)
+      //   .set({ points: post.points + realValue })
+      //   .where("id = :id", { id: postId })
+      //   .execute();
+
+      post.points = post.points + realValue;
+      await post.save();
 
       return true;
     } catch (error: any) {
@@ -133,20 +156,25 @@ export default class {
     return { post };
   }
 
-  @Mutation(() => PostResponse)
+  @Mutation(() => PostResponse, { nullable: true })
   @UseMiddleware(isAuth)
   async createPost(
     @Arg("input")
     input: PostInput,
     @Ctx()
     { PostRepo, req }: MyContext
-  ): Promise<PostResponse> {
+  ): Promise<PostResponse | null> {
     const data = {
       ...input,
       creatorId: req.session.userId,
     };
     const post = PostRepo.create(data);
     await post.save();
+    const newPost = PostRepo.createQueryBuilder("post")
+      .leftJoinAndSelect("post.creator", "creator")
+      .where({ id: post.id })
+      .getOne();
+    console.log(newPost);
     return { post };
   }
 
