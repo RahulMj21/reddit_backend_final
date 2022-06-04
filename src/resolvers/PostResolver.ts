@@ -12,12 +12,13 @@ import {
   FieldResolver,
   Root,
 } from "type-graphql";
-import { LessThan } from "typeorm";
 import { Post } from "../entity/post";
 import isAuth from "../middlewares/isAuth";
 import { MyContext } from "../types";
+import { getUpdoot } from "../utils/getUpdoot";
 import CustomError from "../utils/CustomError";
 import { FieldError } from "./UserResolver";
+import { User } from "../entity/user";
 
 @InputType()
 export class PostInput {
@@ -29,14 +30,14 @@ export class PostInput {
 }
 @InputType()
 export class UpdatePostInput {
-  @Field(() => Int)
+  @Field(() => Int!)
   id!: number;
 
-  @Field(() => String)
-  title?: string;
+  @Field(() => String!)
+  title!: string;
 
-  @Field(() => String)
-  description?: string;
+  @Field(() => String!)
+  description!: string;
 }
 
 @ObjectType()
@@ -65,15 +66,19 @@ export default class {
   }
 
   @FieldResolver(() => Int, { nullable: true })
-  async voteStatus(@Root() post: Post, @Ctx() { req, UpdootRepo }: MyContext) {
+  async voteStatus(@Root() post: Post, @Ctx() { req }: MyContext) {
     const { userId } = req.session;
     if (!userId) return null;
-    const updoot = await UpdootRepo.findOne({
-      where: { userId, postId: post.id },
-    });
+    // const updoot = await UpdootLoader.load({ userId, postId: post.id });
+    const updoot = await getUpdoot({ userId, postId: post.id });
     if (!updoot) return null;
     return updoot.value;
   }
+
+  // @FieldResolver(() => User, { nullable: true })
+  // async creator(@Root() { creatorId }: Post, @Ctx() { UserLoader }: MyContext) {
+  //   return await UserLoader.load(creatorId);
+  // }
 
   @Mutation(() => Boolean)
   @UseMiddleware(isAuth)
@@ -89,7 +94,8 @@ export default class {
       const post = await PostRepo.findOneBy({ id: postId });
       if (!post) return false;
 
-      let updoot = await UpdootRepo.findOne({ where: { userId, postId } });
+      // let updoot = await UpdootRepo.findOne({ where: { userId, postId } });
+      let updoot = await getUpdoot({ userId, postId });
 
       // user has voted before on the post
       if (updoot && updoot.value !== realValue) {
@@ -103,12 +109,6 @@ export default class {
         });
       }
       await updoot.save();
-
-      // await PostRepo.createQueryBuilder()
-      //   .update(Post)
-      //   .set({ points: post.points + realValue })
-      //   .where("id = :id", { id: postId })
-      //   .execute();
 
       post.points = post.points + realValue;
       await post.save();
@@ -151,7 +151,10 @@ export default class {
     id: number,
     @Ctx() { PostRepo }: MyContext
   ): Promise<PostResponse> {
-    const post = await PostRepo.findOneBy({ id });
+    const post = await PostRepo.findOne({
+      relations: ["creator"],
+      where: { id },
+    });
     if (!post) return { errors: [new CustomError("id", "post not found")] };
     return { post };
   }
@@ -170,12 +173,12 @@ export default class {
     };
     const post = PostRepo.create(data);
     await post.save();
-    const newPost = PostRepo.createQueryBuilder("post")
+    const newPost = await PostRepo.createQueryBuilder("post")
       .leftJoinAndSelect("post.creator", "creator")
       .where({ id: post.id })
       .getOne();
-    console.log(newPost);
-    return { post };
+
+    return { post: newPost as Post };
   }
 
   @Mutation(() => PostResponse)
@@ -183,31 +186,60 @@ export default class {
     @Arg("input", () => UpdatePostInput)
     { id, title, description }: UpdatePostInput,
     @Ctx()
-    { PostRepo }: MyContext
+    { PostRepo, req }: MyContext
   ): Promise<PostResponse> {
     try {
-    } catch (error: any) {}
-    const post = await PostRepo.findOneBy({ id });
+      // 1'st way-------------->
+      if (!req.session.userId)
+        return { errors: [new CustomError("user", "unauthorized user")] };
+      const post = await PostRepo.findOneBy({
+        id,
+        creatorId: req.session.userId,
+      });
 
-    if (!post) {
-      return { errors: [new CustomError("id", "post not found")] };
+      if (!post) {
+        return { errors: [new CustomError("id", "post not found")] };
+      }
+
+      post.title = title;
+      post.description = description;
+
+      await post.save();
+
+      // 2'nd way--------->
+      // const result = await PostRepo.createQueryBuilder("post")
+      //   .update()
+      //   .set({ title, description })
+      //   .where(`post.id=:id and post."creatorId"=:creatorId`, {
+      //     id,
+      //     creatorId: req.session.userId,
+      //   })
+      //   .returning("*")
+      //   .execute();
+
+      // if (result.raw.length < 1) {
+      //   return { errors: [new CustomError("ustom", "cannot update")] };
+      // }
+      // return { post: result.raw[0] };
+
+      return { post };
+    } catch (error: any) {
+      return { errors: [new CustomError("id", error.message)] };
     }
-
-    if (title) post.title = title;
-    if (description) post.description = description;
-
-    await post.save();
-    return { post };
   }
 
   @Mutation(() => Boolean)
+  @UseMiddleware(isAuth)
   async deletePost(
     @Arg("id", () => Int)
     id: number,
     @Ctx()
-    { PostRepo }: MyContext
+    { PostRepo, req }: MyContext
   ): Promise<Boolean> {
-    const post = await PostRepo.findOneBy({ id });
+    const userId = req.session.userId;
+    if (!userId) return false;
+
+    const post = await PostRepo.findOneBy({ id, creatorId: userId });
     if (!post) return false;
 
     await post.remove();

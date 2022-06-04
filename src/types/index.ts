@@ -1,3 +1,4 @@
+import DataLoader from "dataloader";
 import { Request, Response } from "express";
 import { Redis } from "ioredis";
 import { Repository } from "typeorm";
@@ -12,4 +13,6 @@ export type MyContext = {
   UserRepo: Repository<User>;
   PostRepo: Repository<Post>;
   UpdootRepo: Repository<Updoot>;
+  // UpdootLoader: any;
+  // UserLoader: any;
 };

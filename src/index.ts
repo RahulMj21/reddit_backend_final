@@ -19,6 +19,9 @@ import { dataSource } from "./utils/connectDb";
 import { User } from "./entity/user";
 import { Post } from "./entity/post";
 import { Updoot } from "./entity/updoot";
+import DataLoader from "dataloader";
+import { getUpdootsByIds } from "./utils/getUpdoot";
+import { getUsersByIds } from "./utils/getUserById";
 
 const port = config.get<number>("port");
 
@@ -36,8 +39,8 @@ async function main() {
 
   app.use(
     cors({
-      origin: ["http://localhost:3000"],
       credentials: true,
+      origin: [config.get<string>("frontendUrl")],
     })
   );
 
@@ -77,6 +80,10 @@ async function main() {
       UserRepo,
       PostRepo,
       UpdootRepo,
+      // @ts-ignore
+      // UpdootLoader: new DataLoader(getUpdootsByIds),
+      // @ts-ignore
+      // UserLoader: new DataLoader(getUsersByIds),
     }),
   });
 
